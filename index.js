@@ -16,18 +16,31 @@ const BEG_SUCCESS_MESSAGES = [
     "A rich man looked at you with pity and gave you $",
     "Your mom looked at you and laughed wickedly, but while leaving, she dropped $",
     "Your dad looked at you with disaproval and he threw money at you. Precisely $",
-    "The IdotBot god blesses you with $"
+    "The IdotBot god blesses you with $",
+    "Pepperoni laughed at you, but IdotBot decided to give you $"
 ];
 const BEG_FAIL_MESSAGES = [
     "Although you pleaded for money, nobody gave you any.",
     "You, being the idiot you are, decided to beg for money in a town full of poverty.",
-    "Nobody likes you and as a result, you got no money."
+    "Nobody likes you and as a result, you got no money.",
+    "You tried to get money by begging on YouTube, but the system hates you and you got no views, which means no money."
 ];
-var commands = [
+var allCommands = [
     ".help", ".balance", ".bal", ".beg", ".deposit", ".dep", ".withdraw", ".with",
     ".gamble", ".bet", ".daily", ".weekly", ".backup", ".restart", ".stop", ".pay",
-    ".ram"
+    ".ram", ".lottery"
 ];
+var economyCommands = [
+    ".balance", ".bal", ".beg", ".deposit", ".dep", ".withdraw", ".with", ".gamble",
+    ".bet", ".daily", ".weekly", ".pay", ".lottery"
+];
+var otherCommands = [
+    ".help", ".backup", ".restart", ".stop", ".ram"
+];
+var lotteryJackpot = 1000000;
+var lotteryTicketCost = (lotteryJackpot / 1000) / 4;
+var lotteryCooldown = [];
+
 var commandCooldown = [];
 var begCooldown = [];
 var betCooldown = [];
@@ -61,16 +74,16 @@ bot.on('message', message => {
     senderID = (message.author.id).toString();
     senderName = message.author.username;
     if(message.content.charAt(0) == "."){
-        if(!commands.includes(message.content.split(" ")[0])){
+        if(!allCommands.includes(message.content.split(" ")[0])){
             return;
         }
         if(commandCooldown[senderID] === NaN || commandCooldown[senderID] === undefined){
             commandCooldown[senderID] = Date.now();
         } else {
-            if(Date.now() - commandCooldown[senderID] >= 2500){
+            if(Date.now() - commandCooldown[senderID] >= 1000){
                 commandCooldown[senderID] = Date.now();
             } else {
-                message.channel.send("You are still in cooldown, you must wait `" + Math.round((2.5 - (Date.now() - commandCooldown[senderID]) / 1000)) + "` seconds to use commands again!");
+                message.channel.send("You are still in cooldown, you must wait `" + Math.round((1 - (Date.now() - commandCooldown[senderID]) / 1000)) + "` seconds to use commands again!");
                 return;
             }
         }
@@ -92,7 +105,14 @@ bot.on('message', message => {
             }
         break;
         case ".help":
-            message.channel.send("**Current commands:** " + commands);
+            db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
+                if(error) console.log(error.message);
+                message.channel.send({embed: {
+                    color: 3066993,
+                    title: "Help Menu | " + senderName,
+                    description: "All Commands: `" + allCommands.join("`, `") + "`\n\nEconomy (Wallet: $" + row.balance + " | Bank: $" + row.currentBank + "/$" + row.maxBank + "): `" + economyCommands.join("`, `") + "`"
+                }});
+            });
         break;
         case ".balance":
         case ".bal":
@@ -433,22 +453,33 @@ bot.on('message', message => {
             }
         break;
         case ".pay":
+            if(payCooldown[senderID] == undefined || isNaN(payCooldown)){
+                payCooldown[senderID] = Date.now();
+            } else {
+                if(Date.now() - payCooldown[senderID] >= 30000){
+                    payCooldown[senderID] = Date.now();
+                } else {
+                    message.channel.send("You just paid someone! You must wait `" + Math.round((30 - (Date.now() - payCooldown[senderID]) / 1000)) + "` seconds pay someone again!");
+                    return;
+                }
+            }
             if(message.content.split(" ")[1] == undefined){
                 message.channel.send("You need to specify a user you want to pay money.");
             } else if(message.content.split(" ")[2] == undefined || isNaN(message.content.split(" ")[2])){
                 message.channel.send("You need to specify an amount you want to pay the user.");
             } else {
                 userToPay = message.content.split(" ")[1];
-                if(userToPay.includes("<@") && userToPay.includes(">")){
-                    userToPay = userToPay.split("<@")[1].split(">")[0];
+                if(userToPay.includes("<@!") && userToPay.includes(">")){
+                    userToPay = userToPay.split("<@!")[1].split(">")[0];
                 }
+                console.log(userToPay);
                 if(userToPay == senderID){
                     message.channel.send("You can't send money to yourself.");
                     return;
                 }
                 db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
                     if(error) console.error(error.message);
-                    if(row == undefined){
+                    if(row == NaN){
                         message.channel.send("You have no money to pay anybody.");
                         return;
                     }
@@ -462,27 +493,77 @@ bot.on('message', message => {
                         message.channel.send("You can't pay somebody more than what you have.");
                     } else {
                         newPayerBalance = row.balance - amountToPay;
+                        payerCurrentBank = row.currentBank;
+                        payerMaxBank = row.maxBank;
                         db.get("SELECT * FROM userData WHERE id = ?;", userToPay, function(error, row){
                             if(error) console.log(error.message);
                             if(row == undefined){
                                 message.channel.send("This user is not affiliated with IdotBot.");
+                                return;
                             } else {
                                 newPaidBalance = +row.balance + +amountToPay;
                                 db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [userToPay, newPaidBalance, row.currentBank, row.maxBank], function(error){
                                     if(error) console.log(error);
                                 });
+                                db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, newPayerBalance, payerCurrentBank, (payerMaxBank + getRandomInt(0, 5))], function(error){
+                                    if(error) console.log(error.message);
+                                    message.channel.send("You have paid the user $" + amountToPay + "!");
+                                });
                             }
-                        });
-                        db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, newPayerBalance, row.currentBank, (row.maxBank + getRandomInt(0, 5))], function(error){
-                            if(error) console.log(error.message);
-                            message.channel.send("You have paid the user $" + amountToPay + "!");
                         });
                     }
                 });
             }
         break;
         case ".ram":
-            message.channel.send((process.memoryUsage().heapUsed / 1024 / 1024) + "MB");
+            message.channel.send((process.memoryUsage().heapUsed));
+        break;
+        case ".lottery":
+            subCommand = message.content.split(" ")[1];
+            if(subCommand == undefined){
+                message.channel.send({embed: {
+                    color: 1752220,
+                    title: "Lottery Info",
+                    description: "Command to buy a lottery ticket: `.lottery buy`\nLottery Ticket Cost: `$" + lotteryTicketCost + "`\nLottery Jackpot: `$" + lotteryJackpot + "`"
+                }});
+                return;
+            }
+            switch(subCommand){
+                case "info":
+                    message.channel.send({embed: {
+                        color: 1752220,
+                        title: "Lottery Info",
+                        description: "Command to buy a lottery ticket: `.lottery buy`\nLottery Ticket Cost: `$" + lotteryTicketCost + "`\nLottery Jackpot: `$" + lotteryJackpot + "`"
+                    }});
+                break;
+                case "buy":
+                    db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
+                        if(error) console.log(error.message);
+                        if(row == undefined){
+                            db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, STARTER_CONST.balance, STARTER_CONST.currentBank, STARTER_CONST.maxBank], function(error){
+                                if(error) console.log(error.message);
+                                message.channel.send("You have no money, and buying a lottery ticket costs $" + lotteryTicketCost);
+                            });
+                        } else {
+                            if(row.balance < lotteryTicketCost){
+                                message.channel.send("You don't have enough money to buy a lottery ticket.");
+                            } else {
+                                chance = getRandomInt(0, 10000) % 696;
+                                if(chance != 0){
+                                    db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, (row.balance - lotteryTicketCost), row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
+                                    message.channel.send("You bought a lottery ticket, but it wasn't a winner. Better luck next time!");
+                                } else {
+                                    db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, (+row.balance + +lotteryJackpot), row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
+                                    message.channel.send("Holy sh*t - you won the lottery! The lottery jackpot of $" + lotteryJackpot + " has been placed into your wallet!");
+                                }
+                            }
+                        }
+                    });
+                break;
+                default:
+                    message.channel.send("That is an unknown sub-command for `lottery`. Try running `.lottery info`");
+                break;
+            }
         break;
     }
 });
