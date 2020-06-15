@@ -1,42 +1,48 @@
 require('dotenv').config();
-const Discord = require('discord.js');
-const bot = new Discord.Client();
-const TOKEN = process.env.TOKEN;
-const sqlite3 = require('sqlite3').verbose();
-const PLAN_IDS = {
+var Discord = require('discord.js');
+var bot = new Discord.Client();
+var TOKEN = process.env.TOKEN;
+var sqlite3 = require('sqlite3').verbose();
+var PLAN_IDS = {
     FREE:0,
-}
-const STARTER_CONST = {
+};
+var STARTER_CONST = {
     plan: PLAN_IDS.FREE,
     balance: 0,
     currentBank: 0,
     maxBank: 100
-}
-const BEG_SUCCESS_MESSAGES = [
+};
+var BEG_SUCCESS_MESSAGES = [
     "A rich man looked at you with pity and gave you $",
     "Your mom looked at you and laughed wickedly, but while leaving, she dropped $",
     "Your dad looked at you with disaproval and he threw money at you. Precisely $",
     "The IdotBot god blesses you with $",
     "Pepperoni laughed at you, but IdotBot decided to give you $"
 ];
-const BEG_FAIL_MESSAGES = [
+var BEG_FAIL_MESSAGES = [
     "Although you pleaded for money, nobody gave you any.",
     "You, being the idiot you are, decided to beg for money in a town full of poverty.",
     "Nobody likes you and as a result, you got no money.",
     "You tried to get money by begging on YouTube, but the system hates you and you got no views, which means no money."
 ];
+var INVENTORY_SEPERATOR = "***";
 var allCommands = [
     ".help", ".balance", ".bal", ".beg", ".deposit", ".dep", ".withdraw", ".with",
     ".gamble", ".bet", ".daily", ".weekly", ".backup", ".restart", ".stop", ".pay",
-    ".ram", ".lottery"
+    ".ram", ".lottery", ".inv", ".inventory", ".shop", ".buy", ".postmeme", ".pm"
 ];
 var economyCommands = [
     ".balance", ".bal", ".beg", ".deposit", ".dep", ".withdraw", ".with", ".gamble",
-    ".bet", ".daily", ".weekly", ".pay", ".lottery"
+    ".bet", ".daily", ".weekly", ".pay", ".lottery", ".buy", ".postmeme", ".pm"
 ];
 var otherCommands = [
-    ".help", ".backup", ".restart", ".stop", ".ram"
+    ".help", ".backup", ".restart", ".stop", ".ram", ".inv", ".inventory", ".shop"
 ];
+
+var shopItems = [
+    "Laptop:250:Go on the internet to post memes and do low-quality youtube videos!"
+];
+
 var lotteryJackpot = 1000000;
 var lotteryTicketCost = (lotteryJackpot / 1000) / 4;
 var lotteryCooldown = [];
@@ -62,14 +68,15 @@ function getRandomInt(min, max){
 }
 
 bot.on('ready', function(){
-    console.log("IdotBot has been successfully enabled!");
+    console.log("IdotBot has been successfully enabled.");
     db.run("CREATE TABLE IF NOT EXISTS userData (id STRING PRIMARY KEY, balance INT, currentBank INT, maxBank INT);");
     db.run("CREATE TABLE IF NOT EXISTS dailyCooldown (id STRING PRIMARY KEY, time INT);");
     db.run("CREATE TABLE IF NOT EXISTS weeklyCooldown (id STRING PRIMARY KEY, time INT);");
-    console.log("Database has been successfully prepared!");
+    db.run("CREATE TABLE IF NOT EXISTS userInventory (id STRING PRIMARY KEY, items STRING);");
+    console.log("Database prepared successfully.");
 });
 
-bot.on('message', message => {
+bot.on('message', function(message) {
     /* Command detection */
     senderID = (message.author.id).toString();
     senderName = message.author.username;
@@ -77,7 +84,7 @@ bot.on('message', message => {
         if(!allCommands.includes(message.content.split(" ")[0])){
             return;
         }
-        if(commandCooldown[senderID] === NaN || commandCooldown[senderID] === undefined){
+        if(isNaN(commandCooldown[senderID]) || commandCooldown[senderID] === undefined){
             commandCooldown[senderID] = Date.now();
         } else {
             if(Date.now() - commandCooldown[senderID] >= 1000){
@@ -107,10 +114,16 @@ bot.on('message', message => {
         case ".help":
             db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
                 if(error) console.log(error.message);
+                if(row == undefined){
+                    row = [];
+                    row.balance = 0;
+                    row.currentBank = 0;
+                    row.maxBank = 100;
+                }
                 message.channel.send({embed: {
                     color: 3066993,
                     title: "Help Menu | " + senderName,
-                    description: "All Commands: `" + allCommands.join("`, `") + "`\n\nEconomy (Wallet: $" + row.balance + " | Bank: $" + row.currentBank + "/$" + row.maxBank + "): `" + economyCommands.join("`, `") + "`"
+                    description: "**All Commands:** `" + allCommands.join("`, `") + "`\n\n**Economy Commands** (Wallet: $" + row.balance + " | Bank: $" + row.currentBank + "/$" + row.maxBank + "): `" + economyCommands.join("`, `") + "`\n\n**Other Commands:** `" + otherCommands.join("`, `") + "`"
                 }});
             });
         break;
@@ -118,7 +131,7 @@ bot.on('message', message => {
         case ".bal":
             if(message.content.split(" ")[1] !== undefined){
                 targetID = message.content.split(" ")[1];
-                if(targetID.includes("<@")) targetID = targetID.split("<@")[1].split(">")[0]
+                if(targetID.includes("<@")) targetID = targetID.split("<@")[1].split(">")[0];
                 db.get("SELECT * FROM userData WHERE id = ?;", targetID, function(error, row){
                     if(error) console.error(error.message);
                     return row ? message.channel.send({embed: {
@@ -204,7 +217,7 @@ bot.on('message', message => {
                 if(row === undefined){
                     db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, STARTER_CONST.balance, STARTER_CONST.currentBank, STARTER_CONST.maxBank], function(error){
                         if(error) console.error(error.message);
-                        console.log("Account for " + senderID + " has been created.")
+                        console.log("Account for " + senderID + " has been created.");
                     });
                 }
                 if(moneyToDeposit == "all") moneyToDeposit = row.balance;
@@ -234,7 +247,7 @@ bot.on('message', message => {
                 if(row === undefined){
                     db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, STARTER_CONST.balance, STARTER_CONST.currentBank, STARTER_CONST.maxBank], function(error){
                         if(error) console.error(error.message);
-                        console.log("Account for " + senderID + " has been created.")
+                        console.log("Account for " + senderID + " has been created.");
                     });
                 }
                 moneyToWidthdraw =  message.content.split(" ")[1];
@@ -256,7 +269,7 @@ bot.on('message', message => {
         break;
         case ".bet":
         case ".gamble":
-            if(betCooldown[senderID] === undefined || betCooldown[senderID] === NaN){
+            if(betCooldown[senderID] === undefined || isNaN(betCooldown[senderID])){
                 betCooldown[senderID] = Date.now();
             } else {
                 if(Date.now() - betCooldown[senderID] >= 5000){
@@ -276,6 +289,10 @@ bot.on('message', message => {
                     return;
                 }
                 amountToGamble = message.content.split(" ")[1];
+                if(amountToGamble == "0"){
+                    message.channel.send("Seems like a smart idea, betting 0.");
+                    return;
+                }
                 if(amountToGamble == "all") amountToGamble = row.balance;
                 else if(!/^\d+$/.test(amountToGamble)){
                     message.channel.send("You can't gamble whatever that was.");
@@ -440,6 +457,7 @@ bot.on('message', message => {
                             if(error) console.error(error.message);
                             if(row == undefined){
                                 message.channel.send("There is no data to restore.");
+                                return;
                             }
                             db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, row.balance, row.currentBank, row.maxBank], function(error){
                                 if(error) console.error(error.message);
@@ -471,15 +489,16 @@ bot.on('message', message => {
                 userToPay = message.content.split(" ")[1];
                 if(userToPay.includes("<@!") && userToPay.includes(">")){
                     userToPay = userToPay.split("<@!")[1].split(">")[0];
+                } else if(userToPay.includes("<@") && userToPay.includes(">")){
+                    userToPay = userToPay.split("<@")[1].split(">")[0];
                 }
-                console.log(userToPay);
                 if(userToPay == senderID){
                     message.channel.send("You can't send money to yourself.");
                     return;
                 }
                 db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
                     if(error) console.error(error.message);
-                    if(row == NaN){
+                    if(row == undefined){
                         message.channel.send("You have no money to pay anybody.");
                         return;
                     }
@@ -501,7 +520,7 @@ bot.on('message', message => {
                                 message.channel.send("This user is not affiliated with IdotBot.");
                                 return;
                             } else {
-                                newPaidBalance = +row.balance + +amountToPay;
+                                newPaidBalance = +row.balance + (+amountToPay);
                                 db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [userToPay, newPaidBalance, row.currentBank, row.maxBank], function(error){
                                     if(error) console.log(error);
                                 });
@@ -548,12 +567,22 @@ bot.on('message', message => {
                             if(row.balance < lotteryTicketCost){
                                 message.channel.send("You don't have enough money to buy a lottery ticket.");
                             } else {
+                                if(lotteryCooldown[senderID] == undefined || isNaN(lotteryCooldown[senderID])){
+                                    lotteryCooldown[senderID] = Date.now();
+                                } else {
+                                    if(Date.now() - lotteryCooldown[senderID] >= 30000){
+                                        lotteryCooldown[senderID] = Date.now();
+                                    } else {
+                                        message.channel.send("Stop wasting your money on the lottery! If you want to try again though, you have to wait `" + Math.round((30 - (Date.now() - lotteryCooldown[senderID]) / 1000)) + "` seconds to take your chance at the lottery again.");
+                                        return;
+                                    }
+                                }
                                 chance = getRandomInt(0, 10000) % 696;
                                 if(chance != 0){
                                     db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, (row.balance - lotteryTicketCost), row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
                                     message.channel.send("You bought a lottery ticket, but it wasn't a winner. Better luck next time!");
                                 } else {
-                                    db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, (+row.balance + +lotteryJackpot), row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
+                                    db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, (+row.balance + (+lotteryJackpot)), row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
                                     message.channel.send("Holy sh*t - you won the lottery! The lottery jackpot of $" + lotteryJackpot + " has been placed into your wallet!");
                                 }
                             }
@@ -563,6 +592,157 @@ bot.on('message', message => {
                 default:
                     message.channel.send("That is an unknown sub-command for `lottery`. Try running `.lottery info`");
                 break;
+            }
+        break;
+        case ".inventory":
+        case ".inv":
+            db.get("SELECT * FROM userInventory WHERE id = ?;", senderID, function(error, row){
+                if(error) console.log(error.message);
+                if(row == undefined){
+                    db.run("INSERT OR REPLACE INTO userInventory (id, items) VALUES (:id, :items);", [senderID, INVENTORY_SEPERATOR]);
+                    db.get("SELECT * FROM userInventory WHERE id = ?;", senderID, function(error, row){
+                        if(error) console.log(error.message);
+                        if(row.items == "***"){
+                            message.channel.send({embed: {
+                                color: 2067276,
+                                title: senderName + "'s Inventory",
+                                description: "Looks like your inventory is empty...\nBuy items by checking the shop with `.shop`!"
+                            }});
+                        } else {
+                            /* ***Laptop:1***OtherItem:2*** */
+                            inventoryDescription = "";
+                            inventory = row.items.split("***");
+                            inventory.forEach(function(item) {
+                                itemName = item.split(":")[0];
+                                itemQuantity = item.split(":")[1];
+                                if(itemName != undefined && itemQuantity != undefined) inventoryDescription += "**" + itemName + "** - Amount: `" + itemQuantity + "`\n";
+                            });
+                            message.channel.send({embed: {
+                                color: 2067276,
+                                title: senderName + "'s Inventory",
+                                description: inventoryDescription
+                            }});
+                        }
+                    });
+                } else {
+                    if(row.items == "***"){
+                        message.channel.send({embed: {
+                            color: 2067276,
+                            title: senderName + "'s Inventory",
+                            description: "Looks like your inventory is empty...\nBuy items by checking the shop with `.shop`!"
+                        }});
+                    } else {
+                        inventoryDescription = "";
+                        inventory = row.items.split("***");
+                        inventory.forEach(function(item) {
+                            itemName = item.split(":")[0];
+                            itemQuantity = item.split(":")[1];
+                            if(itemName != undefined && itemQuantity != undefined) inventoryDescription += "**" + itemName + "** - Amount: `" + itemQuantity + "`\n";
+                        });
+                        message.channel.send({embed: {
+                            color: 2067276,
+                            title: senderName + "'s Inventory",
+                            description: inventoryDescription
+                        }});
+                    }
+                }
+            });
+        break;
+        case ".shop":
+            shopDescription = "To buy an item do `.buy <item_name>`\n\n";
+            shopItems.forEach(function(item){
+                itemName = item.split(":")[0];
+                itemPrice = item.split(":")[1];
+                itemDescription = item.split(":")[2];
+                shopDescription += "**__" + itemName + "__**\nPrice: $**" + itemPrice + "**\n" + itemDescription;
+            });
+            message.channel.send({embed: {
+                color: 2067276,
+                title: "Shop",
+                description: shopDescription
+            }});
+        break;
+        case ".buy":
+            itemToBuy = message.content.split(" ")[1];
+            if(itemToBuy == undefined){
+                message.channel.send("You have to specify an item to buy.");
+                return;
+            }
+            shopItems.forEach(function(item, itemID){
+                itemName = item.split(":")[0];
+                itemExists = undefined;
+                if(itemName.toLowerCase() == itemToBuy.toLowerCase()){
+                    itemToBuy = itemName;
+                    itemExists = true;
+                    itemPrice = item.split(":")[1];
+                    db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
+                        if(error) console.log(error.message);
+                        if(row === undefined){
+                            db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, STARTER_CONST.balance, STARTER_CONST.currentBank, STARTER_CONST.maxBank]);
+                            message.channel.send("You don't have enough money to buy this item!");
+                        } else {
+                            if(row.balance < +itemPrice){
+                                message.channel.send("You don't have enough money to buy this item!");
+                            } else {
+                                // First deduct the money
+                                newBalance = row.balance - +itemPrice;
+                                db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, newBalance, row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
+                                // Now insert the item
+                                db.get("SELECT * FROM userInventory WHERE id = ?;", senderID, function(error, row){
+                                    if(row == undefined){
+                                        db.run("INSERT OR REPLACE INTO userInventory (id, items) VALUES (:id, :items);", [senderID, INVENTORY_SEPERATOR]);
+                                        db.get("SELECT * FROM userInventory WHERE id = ?;", senderID, function(error, row){
+                                            addedItem = itemToBuy + ":1";
+                                            itemAlreadyExists = undefined;
+                                            row.items.split("***").forEach(function(existingItem){
+                                                if(itemToBuy === existingItem.split(":")[0]){
+                                                    itemAlreadyExists = true;
+                                                    existingItemQuantity = +existingItem.split(":")[1];
+                                                    newItemQuanity = 1 + existingItemQuantity;
+                                                    addedItem = itemToBuy + ":" + newItemQuanity;
+                                                    newInventory = row.items.split(existingItem).join(addedItem);
+                                                    db.run("INSERT OR REPLACE INTO userInventory (id, items) VALUES (:id, :items);", [senderID, newInventory]);
+                                                    message.channel.send("You bought a " + itemToBuy + "!");
+                                                    return;
+                                                }
+                                            });
+                                            if(itemAlreadyExists == undefined){
+                                                newInventory = row.items + addedItem + INVENTORY_SEPERATOR;
+                                                db.run("INSERT OR REPLACE INTO userInventory (id, items) VALUES (:id, :items);", [senderID, newInventory]);
+                                                message.channel.send("You bought a " + itemToBuy + "!");
+                                            }
+                                        });
+                                    } else {
+                                        addedItem = itemToBuy + ":1";
+                                        itemAlreadyExists = undefined;
+                                        row.items.split("***").forEach(function(existingItem){
+                                            if(itemToBuy === existingItem.split(":")[0]){
+                                                itemAlreadyExists = true;
+                                                existingItemQuantity = +existingItem.split(":")[1];
+                                                newItemQuanity = 1 + existingItemQuantity;
+                                                addedItem = itemToBuy + ":" + newItemQuanity;
+                                                newInventory = row.items.split(existingItem).join(addedItem);
+                                                db.run("INSERT OR REPLACE INTO userInventory (id, items) VALUES (:id, :items);", [senderID, newInventory], function(error){
+                                                    if(error) console.log(error);
+                                                });
+                                                message.channel.send("You bought a " + itemToBuy + " and now have " + newItemQuanity + " " + itemToBuy + "(s)!");
+                                                return;
+                                            }
+                                        });
+                                        if(itemAlreadyExists == undefined){
+                                            newInventory = row.items + addedItem + INVENTORY_SEPERATOR;
+                                            db.run("INSERT OR REPLACE INTO userInventory (id, items) VALUES (:id, :items);", [senderID, newInventory]);
+                                            message.channel.send("You bought a " + itemToBuy + "!");
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+            if(itemExists == undefined){
+                message.channel.send("So... that item dosen't exist.");
             }
         break;
     }
