@@ -3,11 +3,7 @@ var Discord = require('discord.js');
 var bot = new Discord.Client();
 var TOKEN = process.env.TOKEN;
 var sqlite3 = require('sqlite3').verbose();
-var PLAN_IDS = {
-    FREE:0,
-};
 var STARTER_CONST = {
-    plan: PLAN_IDS.FREE,
     balance: 0,
     currentBank: 0,
     maxBank: 100
@@ -29,32 +25,39 @@ var INVENTORY_SEPERATOR = "***";
 var allCommands = [
     ".help", ".balance", ".bal", ".beg", ".deposit", ".dep", ".withdraw", ".with",
     ".gamble", ".bet", ".daily", ".weekly", ".backup", ".restart", ".stop", ".pay",
-    ".ram", ".lottery", ".inv", ".inventory", ".shop", ".buy", ".postmeme", ".pm"
+    ".ram", ".lottery", ".inv", ".inventory", ".shop", ".buy", ".postmeme", ".pm",
+    ".youtube", ".yt"
 ];
 var economyCommands = [
     ".balance", ".bal", ".beg", ".deposit", ".dep", ".withdraw", ".with", ".gamble",
-    ".bet", ".daily", ".weekly", ".pay", ".lottery", ".buy", ".postmeme", ".pm"
+    ".bet", ".daily", ".weekly", ".pay", ".lottery", ".buy", ".postmeme", ".pm", 
+    ".youtube", ".yt"
 ];
 var otherCommands = [
     ".help", ".backup", ".restart", ".stop", ".ram", ".inv", ".inventory", ".shop"
 ];
 
 var shopItems = [
-    "Laptop:250:Go on the internet to post memes and do low-quality youtube videos!"
+    "Laptop:250:Go on the internet to post memes and post low-quality YouTube videos!",
+    "PC:1000:Go on YouTube and post **high-quality** videos!"
 ];
 
 var lotteryJackpot = 1000000;
 var lotteryTicketCost = (lotteryJackpot / 1000) / 4;
 var lotteryCooldown = [];
 
+var viewsPerDollar = 1000;
+
 var commandCooldown = [];
 var begCooldown = [];
 var betCooldown = [];
 var payCooldown = [];
+var postMemeCooldown = [];
+var youtubePostCooldown = [];
 
 bot.login(TOKEN);
 
-db = new sqlite3.Database("UserData.db", function  (err){
+db = new sqlite3.Database("UserData.db", function (err){
     if(err){
         return console.error(err.message);
     }
@@ -67,12 +70,17 @@ function getRandomInt(min, max){
     return Math.floor(Math.random() * (max - min)) + min;
 }
 
+bot.on('error', function(error){
+    console.log(error.message);
+});
+
 bot.on('ready', function(){
     console.log("IdotBot has been successfully enabled.");
     db.run("CREATE TABLE IF NOT EXISTS userData (id STRING PRIMARY KEY, balance INT, currentBank INT, maxBank INT);");
     db.run("CREATE TABLE IF NOT EXISTS dailyCooldown (id STRING PRIMARY KEY, time INT);");
     db.run("CREATE TABLE IF NOT EXISTS weeklyCooldown (id STRING PRIMARY KEY, time INT);");
     db.run("CREATE TABLE IF NOT EXISTS userInventory (id STRING PRIMARY KEY, items STRING);");
+    db.run("CREATE TABLE IF NOT EXISTS userChannel (id STRING PRIMARY KEY, subscribers INT, likes INT, views INT);");
     console.log("Database prepared successfully.");
 });
 
@@ -122,8 +130,8 @@ bot.on('message', function(message) {
                 }
                 message.channel.send({embed: {
                     color: 3066993,
-                    title: "Help Menu | " + senderName,
-                    description: "**All Commands:** `" + allCommands.join("`, `") + "`\n\n**Economy Commands** (Wallet: $" + row.balance + " | Bank: $" + row.currentBank + "/$" + row.maxBank + "): `" + economyCommands.join("`, `") + "`\n\n**Other Commands:** `" + otherCommands.join("`, `") + "`"
+                    title: "__Help Menu | " + senderName + "__",
+                    description: "**__All Commands:__** `" + allCommands.join("`, `") + "`\n\n**__Economy Commands__** (Wallet: $" + row.balance + " | Bank: $" + row.currentBank + "/$" + row.maxBank + "): `" + economyCommands.join("`, `") + "`\n\n**__Other Commands:__** `" + otherCommands.join("`, `") + "`"
                 }});
             });
         break;
@@ -743,6 +751,175 @@ bot.on('message', function(message) {
             });
             if(itemExists == undefined){
                 message.channel.send("So... that item dosen't exist.");
+            }
+        break;
+        case ".postmeme":
+        case ".pm":
+            db.get("SELECT * FROM userInventory WHERE id = ?;", senderID, function(error, row){
+                if(row == undefined){
+                    message.channel.send("You don't have a laptop! To get one, you have to buy one with `.buy laptop`");
+                } else {
+                    items = row.items.split(INVENTORY_SEPERATOR);
+                    hasLaptop = false;
+                    items.forEach(function(item){
+                        itemName = item.split(":")[0];
+                        if(itemName == "Laptop"){
+                            hasLaptop = true;
+                        }
+                    });
+                    if(hasLaptop == false){
+                        message.channel.send("You don't have a laptop! To get one, you have to buy one with `.buy laptop`");
+                    } else {
+                        if(isNaN(postMemeCooldown[senderID]) || postMemeCooldown[senderID] === undefined){
+                            postMemeCooldown[senderID] = Date.now();
+                        } else {
+                            if(Date.now() - postMemeCooldown[senderID] >= 300000){
+                                postMemeCooldown[senderID] = Date.now();
+                            } else {
+                                message.channel.send("Bro, stop posting memes lmao. You must wait `" + Math.round(Math.round((300 - (Date.now() - postMemeCooldown[senderID]) / 1000)) / 60) + "` minutes to post another meme again!");
+                                return;
+                            }
+                        }
+                        upvotes = getRandomInt(-2000, 2000);
+                        if(upvotes <= -1500){
+                            message.channel.send("You got " + upvotes + " upvotes LMAO. Nobody liked that meme you uncultered swine.");
+                        } else if (upvotes <= 0 && upvotes > -1500){
+                            message.channel.send("Dang, nobody really seemed to like that meme. It got " + upvotes + " upvotes.");
+                        } else if (upvotes > 0){
+                            moneyMade = getRandomInt(25, 150);
+                            message.channel.send("Wow! Your meme got " + upvotes + " upvotes, and you gained $" + moneyMade + " from the ads.");
+                            db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
+                                newBalance = row.balance + (+moneyMade);
+                                db.run("INSERT OR REPLACE into userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, newBalance, row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
+                            });
+                        }
+                    }
+                }
+            });
+        break;
+        case ".youtube":
+        case ".yt":
+            subCommand = message.content.split(" ")[1];
+            switch(subCommand){
+                case "info":
+                    db.get("SELECT * FROM userChannel WHERE id = ?;", senderID, function(error, row){
+                        if(row == undefined){
+                            message.channel.send({embed: {
+                                color: 9807270,
+                                title: "YouTube | " + senderName + "'s Channel",
+                                description: "**__Your Channel:__**\nSubscribers: `" + "0" + "`\nTotal Likes: `" + "0" + "`\nTotal Views: `" + "0" + "`\n\n**__Post Videos:__**\n`.yt post`"
+                            }});
+                        } else {
+                            message.channel.send({embed: {
+                                color: 9807270,
+                                title: "YouTube | " + senderName + "'s Channel",
+                                description: "**__Your Channel:__**\nSubscribers: `" + row.subscribers + "`\nTotal Likes: `" + row.likes + "`\nTotal Views: `" + row.views + "`\n\n**__Post Videos:__**\n`.yt post`"
+                            }});
+                        }
+                    });
+                break;
+                case "post":
+                    db.get("SELECT * FROM userInventory WHERE id = ?;", senderID, function(error, row){
+                        if(row == undefined){
+                            message.channel.send("Looks like you don't have a laptop or a PC! You can buy items using the `.buy` command.");
+                        } else {
+                            hasLaptop = false;
+                            hasPC = false;
+                            allItems = row.items.split("***");
+                            allItems.forEach(function(item){
+                                itemName = item.split(":")[0];
+                                if(itemName == "Laptop") hasLaptop = true;
+                                if(itemName == "PC") hasPC = true;
+                            });
+                            if(!hasLaptop && !hasPC){
+                                message.channel.send("Looks like you don't have a laptop or a PC! You can buy items using the `.buy` command.");
+                            } else {
+                                if(youtubePostCooldown[senderID] == undefined || isNaN(youtubePostCooldown[senderID])){
+                                    youtubePostCooldown[senderID] = Date.now();
+                                } else {
+                                    if(Date.now() - youtubePostCooldown[senderID] >= 300000){
+                                        youtubePostCooldown[senderID] = Date.now();
+                                    } else {
+                                        timeToWait = Math.round(Math.round((300 - (Date.now() - youtubePostCooldown[senderID]) / 1000)) / 60) + " minutes";
+                                        if(timeToWait == 0) timeToWait = Math.round((300 - (Date.now() - youtubePostCooldown[senderID]) / 1000)) + " seconds";
+                                        message.channel.send("Stop posting on YouTube and put effort into your videos. You must wait `" + timeToWait + "` to post another video again!");
+                                        return;
+                                    }
+                                }
+                                if(hasPC){
+                                    videoViews = getRandomInt(100000, 1000000);
+                                    videoLikes = getRandomInt(videoViews / 500, videoViews / 100);
+                                    newSubscribers = getRandomInt(videoLikes / 50, videoLikes / 10);
+                                    moneyGenerated = Math.round(videoViews / viewsPerDollar);
+                                    db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
+                                        newBalance = row.balance + moneyGenerated;
+                                        db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, newBalance, row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
+                                        message.channel.send("Your video got " + videoViews + " views, " + videoLikes + " likes, and you got " + newSubscribers + " new subscribers! This video got you $" + moneyGenerated);
+                                    });
+                                    db.get("SELECT * FROM userChannel WHERE id = ?;", senderID, function(error, row){
+                                        if(row == undefined){
+                                            db.run("INSERT OR REPLACE INTO userChannel (id, subscribers, likes, views) VALUES (:id, :subscribers, :likes, :views);", [senderID, 0, 0, 0]);
+                                            db.get("SELECT * FROM userChannel WHERE id = ?;", senderID, function(error, row){
+                                                newSubCount = row.subscribers + newSubscribers;
+                                                newLikes = row.likes + videoLikes;
+                                                newViews = row.views + videoViews;
+                                                db.run("INSERT OR REPLACE INTO userChannel (id, subscribers, likes, views) VALUES (:id, :subscribers, :likes, :views);", [senderID, newSubCount, newLikes, newViews]);
+                                            });
+                                        } else {
+                                            newSubCount = row.subscribers + newSubscribers;
+                                            newLikes = row.likes + videoLikes;
+                                            newViews = row.views + videoViews;
+                                            db.run("INSERT OR REPLACE INTO userChannel (id, subscribers, likes, views) VALUES (:id, :subscribers, :likes, :views);", [senderID, newSubCount, newLikes, newViews]);
+                                        }
+                                    });
+                                } else {
+                                    videoViews = getRandomInt(100000, 1000000);
+                                    videoLikes = getRandomInt(videoViews / 500, videoViews / 100);
+                                    newSubscribers = getRandomInt(videoLikes / 50, videoLikes / 10);
+                                    moneyGenerated = Math.round(videoViews / viewsPerDollar);
+                                    db.get("SELECT * FROM userData WHERE id = ?;", senderID, function(error, row){
+                                        newBalance = row.balance + moneyGenerated;
+                                        db.run("INSERT OR REPLACE INTO userData (id, balance, currentBank, maxBank) VALUES (:id, :balance, :currentBank, :maxBank);", [senderID, newBalance, row.currentBank, (row.maxBank + getRandomInt(0, 5))]);
+                                        message.channel.send("Your video got " + videoViews + " views, " + videoLikes + " likes, and you got " + newSubscribers + " new subscribers! This video got you $" + moneyGenerated);
+                                    });
+                                    db.get("SELECT * FROM userChannel WHERE id = ?;", senderID, function(error, row){
+                                        if(row == undefined){
+                                            db.run("INSERT OR REPLACE INTO userChannel (id, subscribers, likes, views) VALUES (:id, :subscribers, :likes, :views);", [senderID, 0, 0, 0]);
+                                            db.get("SELECT * FROM userChannel WHERE id = ?;", senderID, function(error, row){
+                                                newSubCount = row.subscribers + newSubscribers;
+                                                newLikes = row.likes + videoLikes;
+                                                newViews = row.views + videoViews;
+                                                db.run("INSERT OR REPLACE INTO userChannel (id, subscribers, likes, views) VALUES (:id, :subscribers, :likes, :views);", [senderID, newSubCount, newLikes, newViews]);
+                                            });
+                                        } else {
+                                            newSubCount = row.subscribers + newSubscribers;
+                                            newLikes = row.likes + videoLikes;
+                                            newViews = row.views + videoViews;
+                                            db.run("INSERT OR REPLACE INTO userChannel (id, subscribers, likes, views) VALUES (:id, :subscribers, :likes, :views);", [senderID, newSubCount, newLikes, newViews]);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    });
+                break;
+                default:
+                    db.get("SELECT * FROM userChannel WHERE id = ?;", senderID, function(error, row){
+                        if(row == undefined){
+                            message.channel.send({embed: {
+                                color: 9807270,
+                                title: "YouTube | " + senderName + "'s Channel",
+                                description: "**__Your Channel:__**\nSubscribers: `" + "0" + "`\nTotal Likes: `" + "0" + "`\nTotal Views: `" + "0" + "`\n\n**__Post Videos:__**\n`.yt post`"
+                            }});
+                        } else {
+                            message.channel.send({embed: {
+                                color: 9807270,
+                                title: "YouTube | " + senderName + "'s Channel",
+                                description: "**__Your Channel:__**\nSubscribers: `" + row.subscribers + "`\nTotal Likes: `" + row.likes + "`\nTotal Views: `" + row.views + "`\n\n**__Post Videos:__**\n`.yt post`"
+                            }});
+                        }
+                    });
+                break;
             }
         break;
     }
